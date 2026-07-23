@@ -619,21 +619,215 @@ class Portfolio:
 
 
 # =============================================================================
-# SESSION STATE
+# ACCOUNTS + BROWSER STORAGE
+# -----------------------------------------------------------------------------
+# Everything is stored in the browser's localStorage on THIS device — there is
+# no server database. That means: data persists across sessions on the same
+# browser, each account is device-local, and the "password" is a lightweight
+# local lock (hashed, but NOT bank-grade). We say so plainly in the UI.
 # =============================================================================
-def init_state():
-    if "profiles" not in st.session_state:
-        st.session_state["profiles"] = {"Demo Trader": new_portfolio("Demo Trader", "USD")}
-        st.session_state["profiles"]["Demo Trader"]["watchlist"] = ["AAPL", "TSLA", "RELIANCE.NS"]
-        st.session_state["active_profile"] = "Demo Trader"
+import hashlib
+import secrets
+
+try:
+    from streamlit_local_storage import LocalStorage
+    _LS = LocalStorage()
+    LS_OK = True
+except Exception:  # component missing or failed to load -> session-only mode
+    _LS = None
+    LS_OK = False
+
+DB_KEY = "fictrade_db_v1"
+
+
+def _hash_pw(password, salt):
+    return hashlib.sha256((salt + "::" + password).encode("utf-8")).hexdigest()
+
+
+def _db_hash():
+    return hashlib.md5(json.dumps(st.session_state.get("db", {}), sort_keys=True).encode()).hexdigest()
+
+
+def load_db():
+    """Load the accounts DB from localStorage into session_state.
+
+    We keep re-reading until we either see a real value or the user acts
+    (do_login/signup set db_ready), which avoids the 'stuck empty on first
+    mount' race that localStorage components can have.
+    """
+    if st.session_state.get("db_ready"):
+        return
+    raw = None
+    if LS_OK:
+        try:
+            raw = _LS.getItem(DB_KEY)
+        except Exception:
+            raw = None
+    else:
+        st.session_state.setdefault("db", {"users": {}})
+        st.session_state["db_ready"] = True
+        st.session_state["db_hash"] = _db_hash()
+        return
+    if raw:
+        try:
+            st.session_state["db"] = json.loads(raw)
+            st.session_state["db_ready"] = True
+        except Exception:
+            st.session_state["db"] = {"users": {}}
+    else:
+        st.session_state.setdefault("db", {"users": {}})
+    st.session_state["db_hash"] = _db_hash()
+
+
+def save_db():
+    """Persist to localStorage only when the DB actually changed."""
+    if not LS_OK:
+        return
+    h = _db_hash()
+    if st.session_state.get("db_hash") != h:
+        st.session_state["_ls_n"] = st.session_state.get("_ls_n", 0) + 1
+        try:
+            _LS.setItem(DB_KEY, json.dumps(st.session_state["db"]), key=f"ls_set_{st.session_state['_ls_n']}")
+        except Exception:
+            pass
+        st.session_state["db_hash"] = h
+
+
+def _users():
+    return st.session_state["db"].setdefault("users", {})
+
+
+def signup(username, password):
+    username = (username or "").strip()
+    if not username or not password:
+        return False, "Enter a username and a password."
+    if len(username) < 3:
+        return False, "Username must be at least 3 characters."
+    if len(password) < 4:
+        return False, "Password must be at least 4 characters."
+    if username.lower() in {u.lower() for u in _users()}:
+        return False, "That username is already taken on this device."
+    salt = secrets.token_hex(8)
+    prof = new_portfolio("My Portfolio", "USD")
+    prof["watchlist"] = ["AAPL", "TSLA", "RELIANCE.NS"]
+    _users()[username] = {
+        "salt": salt,
+        "password_hash": _hash_pw(password, salt),
+        "created_at": _now(),
+        "profiles": {"My Portfolio": prof},
+        "active_profile": "My Portfolio",
+    }
+    return True, username
+
+
+def login(username, password):
+    username = (username or "").strip()
+    match = next((u for u in _users() if u.lower() == username.lower()), None)
+    if not match:
+        return False, "No account with that username on this device."
+    u = _users()[match]
+    if _hash_pw(password, u["salt"]) != u["password_hash"]:
+        return False, "Incorrect password."
+    return True, match
+
+
+def do_login(username):
+    """Point the session's working profiles at this account's stored data (by
+    reference), so any trade the user makes mutates the DB and gets saved."""
+    st.session_state["user"] = username
+    u = _users()[username]
+    st.session_state["profiles"] = u["profiles"]
+    st.session_state["active_profile"] = u.get("active_profile") or next(iter(u["profiles"]))
+    st.session_state["is_guest"] = False
+    st.session_state["db_ready"] = True
+
+
+def do_guest():
+    gp = new_portfolio("My Portfolio", "USD")
+    gp["watchlist"] = ["AAPL", "TSLA", "RELIANCE.NS"]
+    st.session_state["user"] = "Guest"
+    st.session_state["profiles"] = {"My Portfolio": gp}  # NOT in db -> never saved
+    st.session_state["active_profile"] = "My Portfolio"
+    st.session_state["is_guest"] = True
+
+
+def logout():
+    for k in ("user", "profiles", "active_profile", "is_guest"):
+        st.session_state.pop(k, None)
+
+
+def ensure_defaults():
     st.session_state.setdefault("anthropic_api_key", "")
     st.session_state.setdefault("ai_model", "claude-sonnet-5")
     st.session_state.setdefault("trade_ticker", "AAPL")
     st.session_state.setdefault("chart_ticker", "AAPL")
 
 
+def sync_active_to_db():
+    """Persist the current active-profile choice into the account record."""
+    if not st.session_state.get("is_guest", True):
+        user = st.session_state.get("user")
+        if user and user in _users():
+            _users()[user]["active_profile"] = st.session_state.get("active_profile")
+
+
 def active_portfolio():
-    return Portfolio(st.session_state["profiles"][st.session_state["active_profile"]])
+    profiles = st.session_state["profiles"]
+    name = st.session_state.get("active_profile")
+    if name not in profiles:
+        name = next(iter(profiles))
+        st.session_state["active_profile"] = name
+    return Portfolio(profiles[name])
+
+
+def auth_gate():
+    """Login / signup screen shown when nobody is logged in."""
+    inject_css()
+    hero("Fictrade", "Practice trading with real market data and fake money. "
+         "Create an account and your portfolio saves right here in your browser.", "📈")
+    if not LS_OK:
+        st.warning("Browser storage isn't available in this environment, so accounts will only last for "
+                   "the current session (they won't be here when you come back).")
+    st.caption("🔒 Lightweight local login: accounts live in THIS browser on THIS device, and the password is a "
+               "simple local lock — please don't reuse an important password.")
+
+    t_login, t_signup, t_guest = st.tabs(["🔑 Log in", "🆕 Create account", "👀 Guest"])
+
+    with t_login:
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Log in", use_container_width=True):
+                ok, res = login(u, p)
+                if ok:
+                    do_login(res)
+                    save_db()
+                    st.rerun()
+                else:
+                    st.error(res)
+
+    with t_signup:
+        with st.form("signup_form"):
+            u = st.text_input("Choose a username")
+            p = st.text_input("Choose a password", type="password")
+            p2 = st.text_input("Confirm password", type="password")
+            if st.form_submit_button("Create account", use_container_width=True):
+                if p != p2:
+                    st.error("Passwords don't match.")
+                else:
+                    ok, res = signup(u, p)
+                    if ok:
+                        do_login(res)
+                        save_db()
+                        st.rerun()
+                    else:
+                        st.error(res)
+
+    with t_guest:
+        st.caption("Play around without an account. Nothing is saved once you close the tab.")
+        if st.button("Continue as guest", use_container_width=True):
+            do_guest()
+            st.rerun()
 
 
 def price_lookup_for(pm):
@@ -649,14 +843,21 @@ def price_lookup_for(pm):
 # =============================================================================
 def render_sidebar():
     st.sidebar.markdown("### 📈 Fictrade")
-    st.sidebar.caption("Fictional trading. Real market data. Zero real risk.")
+    user = st.session_state.get("user", "Guest")
+    is_guest = st.session_state.get("is_guest", True)
+    tag = "guest — not saved" if is_guest else "saved in this browser"
+    st.sidebar.caption(f"👤 **{user}** · {tag}")
+    if st.sidebar.button("Log out", use_container_width=True):
+        logout()
+        st.rerun()
     st.sidebar.markdown("---")
 
     names = list(st.session_state["profiles"].keys())
     active = st.session_state["active_profile"]
-    choice = st.sidebar.selectbox("Trading profile", names, index=names.index(active))
+    choice = st.sidebar.selectbox("Trading profile", names, index=names.index(active) if active in names else 0)
     if choice != active:
         st.session_state["active_profile"] = choice
+        sync_active_to_db()
         st.rerun()
 
     with st.sidebar.expander("➕ New profile"):
@@ -667,6 +868,7 @@ def render_sidebar():
                 if nm.strip() not in st.session_state["profiles"]:
                     st.session_state["profiles"][nm.strip()] = new_portfolio(nm.strip(), cur)
                     st.session_state["active_profile"] = nm.strip()
+                    sync_active_to_db()
                     st.rerun()
 
     pm = active_portfolio()
@@ -1178,8 +1380,19 @@ def page_settings(pm, prices):
     card_open()
     st.markdown("- **Data:** real market data via yfinance (Yahoo Finance), typically delayed — not a live broker feed.\n"
                 "- **Trading:** 100% fictional. No brokerage, no real orders, no real money, ever.\n"
-                "- **Storage:** this hosted build keeps everything in your browser session (resets when the session ends).\n"
+                "- **Accounts & storage:** your account and all its data are saved in **this browser on this device** "
+                "(localStorage) — there's no central server database. So your portfolio is here when you return on the "
+                "same browser, but it doesn't follow you to other devices, and the login is a lightweight local lock, "
+                "not bank-grade security. Don't reuse an important password.\n"
                 "- **Not investment advice.** Every AI note is educational commentary on public data.")
+    card_close()
+    st.markdown("### 🔐 Account")
+    card_open()
+    st.write(f"Signed in as **{st.session_state.get('user','Guest')}**"
+             + (" (guest — nothing is saved)" if st.session_state.get("is_guest", True) else "."))
+    if st.button("Log out"):
+        logout()
+        st.rerun()
     card_close()
 
 
@@ -1187,8 +1400,16 @@ def page_settings(pm, prices):
 # MAIN
 # =============================================================================
 def main():
+    load_db()
+    ensure_defaults()
+
+    # Not logged in -> show the account gate and stop.
+    if "user" not in st.session_state:
+        auth_gate()
+        save_db()
+        return
+
     inject_css()
-    init_state()
     pm, prices, page = render_sidebar()
     router = {
         "🏠 Dashboard": page_dashboard, "💰 Trade": page_trade, "📊 Portfolio": page_portfolio,
@@ -1196,6 +1417,9 @@ def main():
         "📰 News": page_news, "🎓 Learn": page_learn, "🏆 Leaderboard": page_leaderboard, "⚙️ Settings": page_settings,
     }
     router[page](pm, prices)
+
+    # Persist any changes made this run (no-op for guests / unchanged state).
+    save_db()
 
 
 if __name__ == "__main__":
