@@ -81,7 +81,8 @@ def inject_css():
     /* Metric cards */
     div[data-testid="stMetric"] {{ background:{CARD}; border:1px solid {BORDER}; border-radius:14px;
         padding:12px 16px 8px; box-shadow:0 1px 2px rgba(16,24,40,0.04); }}
-    div[data-testid="stMetricLabel"] {{ color:{MUTED} !important; font-weight:600; font-size:0.74rem !important; }}
+    div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] * {{ color:#475467 !important; opacity:1 !important;
+        font-weight:600; font-size:0.8rem !important; }}
     div[data-testid="stMetricValue"] {{ font-family:'JetBrains Mono',monospace; font-weight:700 !important;
         font-size:1.5rem !important; white-space:normal !important; overflow:visible !important;
         text-overflow:clip !important; line-height:1.15 !important; color:{TEXT} !important; }}
@@ -100,14 +101,17 @@ def inject_css():
     button[data-baseweb="tab"][aria-selected="true"] {{ color:{PRIMARY} !important; }}
     div[data-baseweb="tab-highlight"] {{ background-color:{PRIMARY} !important; }}
     /* Top nav as pill tabs */
-    div[data-testid="stMain"] div[role="radiogroup"] {{ gap:6px; flex-wrap:wrap; margin-bottom:6px; }}
-    div[data-testid="stMain"] div[role="radiogroup"] > label {{
-        background:{CARD}; border:1px solid {BORDER}; border-radius:999px; padding:6px 14px !important;
-        margin:0 !important; box-shadow:0 1px 2px rgba(16,24,40,0.04); font-weight:600; }}
-    div[data-testid="stMain"] div[role="radiogroup"] > label:has(input:checked) {{
-        background:{PRIMARY}; border-color:{PRIMARY}; }}
-    div[data-testid="stMain"] div[role="radiogroup"] > label:has(input:checked) * {{ color:#fff !important; }}
-    div[data-testid="stMain"] div[role="radiogroup"] > label > div:first-child {{ display:none; }}
+    div[data-testid="stMain"] div[role="radiogroup"] {{ gap:8px; flex-wrap:wrap; margin-bottom:12px; }}
+    div[data-testid="stMain"] div[role="radiogroup"] label {{
+        background:{CARD}; border:1px solid {BORDER}; border-radius:999px; padding:7px 15px !important;
+        margin:0 !important; cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,0.05); }}
+    div[data-testid="stMain"] div[role="radiogroup"] label p,
+    div[data-testid="stMain"] div[role="radiogroup"] label div {{ color:{TEXT} !important; font-weight:600 !important; font-size:0.9rem; }}
+    /* hide the round radio marker */
+    div[data-testid="stMain"] div[role="radiogroup"] label > div:first-child {{ display:none !important; }}
+    div[data-testid="stMain"] div[role="radiogroup"] label:has(input:checked) {{ background:{PRIMARY} !important; border-color:{PRIMARY} !important; }}
+    div[data-testid="stMain"] div[role="radiogroup"] label:has(input:checked) p,
+    div[data-testid="stMain"] div[role="radiogroup"] label:has(input:checked) div {{ color:#fff !important; }}
     /* Cards & pills */
     .hero {{ padding:22px 26px; border-radius:18px; background:linear-gradient(120deg,#EEF2FF,#F7FAFF);
         border:1px solid {BORDER}; margin-bottom:18px; }}
@@ -768,7 +772,7 @@ def page_dashboard(pm, prices):
     hero(f"{pm.d['name']}", "Your practice portfolio at a glance. Prices are real (Yahoo Finance); trades are fictional.", "🏠")
 
     # Indices
-    st.markdown("#### 🇮🇳 Markets today")
+    st.markdown("#### 📊 Markets today")
     iq = get_quotes_batch(tuple(t for _, t in INDICES))
     cols = st.columns(len(INDICES))
     for c, (nm, t) in zip(cols, INDICES):
