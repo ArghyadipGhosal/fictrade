@@ -94,7 +94,10 @@ def inject_css():
     h1 {{ color:#fff !important; }}
     div[data-testid="stMetric"] {{ background:{CARD}; border:1px solid {CARD_BORDER}; border-radius:16px; padding:14px 18px 10px; backdrop-filter:blur(6px); }}
     div[data-testid="stMetricLabel"] {{ color:{TEXT_MUTED} !important; font-weight:600; text-transform:uppercase; font-size:0.72rem !important; letter-spacing:0.06em; }}
-    div[data-testid="stMetricValue"] {{ font-family:'JetBrains Mono',monospace; font-weight:700 !important; }}
+    div[data-testid="stMetricValue"] {{ font-family:'JetBrains Mono',monospace; font-weight:700 !important;
+        font-size:1.55rem !important; white-space:normal !important; overflow:visible !important;
+        text-overflow:clip !important; line-height:1.15 !important; word-break:break-word; }}
+    div[data-testid="stMetricValue"] > div {{ white-space:normal !important; overflow:visible !important; text-overflow:clip !important; }}
     .stButton>button, .stFormSubmitButton>button {{
         background:linear-gradient(135deg,{PRIMARY},{PRIMARY_2}); color:#fff !important; border:none;
         border-radius:12px; font-weight:700; padding:0.55rem 1.2rem; transition:transform .12s,box-shadow .12s;
@@ -164,6 +167,8 @@ def fmt_money(v, compact=False):
         return "—"
     if compact:
         a = abs(v)
+        if a >= 1e12:
+            return f"₹{v/1e12:.2f} L Cr"   # lakh crore
         if a >= 1e7:
             return f"₹{v/1e7:.2f} Cr"
         if a >= 1e5:
