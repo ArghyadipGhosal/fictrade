@@ -81,8 +81,8 @@ def inject_css():
     /* Metric cards */
     div[data-testid="stMetric"] {{ background:{CARD}; border:1px solid {BORDER}; border-radius:14px;
         padding:12px 16px 8px; box-shadow:0 1px 2px rgba(16,24,40,0.04); }}
-    div[data-testid="stMetricLabel"], div[data-testid="stMetricLabel"] * {{ color:#475467 !important; opacity:1 !important;
-        font-weight:600; font-size:0.8rem !important; }}
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] *, [data-testid="stMetricLabel"] p {{
+        color:#1D2939 !important; opacity:1 !important; font-weight:700 !important; font-size:0.82rem !important; }}
     div[data-testid="stMetricValue"] {{ font-family:'JetBrains Mono',monospace; font-weight:700 !important;
         font-size:1.5rem !important; white-space:normal !important; overflow:visible !important;
         text-overflow:clip !important; line-height:1.15 !important; color:{TEXT} !important; }}
@@ -180,6 +180,17 @@ def fmt_money(v, compact=False):
         if a >= 1e3:
             return f"₹{v/1e3:.1f}K"
     return f"₹{v:,.2f}"
+
+
+CUR_SYM = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥", "HKD": "HK$", "GBp": "p"}
+FX_FALLBACK = {"INR": 1.0, "USD": 83.0, "EUR": 90.0, "GBP": 105.0, "JPY": 0.56, "HKD": 10.6, "GBp": 1.05}
+
+
+def fmt_price(v, currency="INR"):
+    """Show a single stock's price in its own currency."""
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return "—"
+    return f"{CUR_SYM.get(currency, currency + ' ')}{v:,.2f}"
 
 
 # =============================================================================
@@ -284,11 +295,25 @@ def get_history(ticker, period="6mo", interval="1d"):
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fx_to_inr(currency):
+    """How many INR is 1 unit of `currency`."""
+    if not currency or currency == "INR":
+        return 1.0
+    try:
+        h = get_history(f"{currency}INR=X", "5d", "1d")
+        if not h.empty:
+            return float(h["Close"].iloc[-1])
+    except Exception:
+        pass
+    return FX_FALLBACK.get(currency, 1.0)
+
+
 @st.cache_data(ttl=45, show_spinner=False)
 def get_quote(ticker):
     out = {"ticker": ticker, "ok": False, "name": TICKER_TO_NAME.get(ticker, ticker), "price": None,
-           "prev_close": None, "change_pct": None, "day_high": None, "day_low": None, "market_cap": None,
-           "year_high": None, "year_low": None, "volume": None}
+           "price_inr": None, "prev_close": None, "change_pct": None, "day_high": None, "day_low": None,
+           "market_cap": None, "year_high": None, "year_low": None, "volume": None, "currency": "INR", "fx": 1.0}
     if yf is None:
         return out
     try:
@@ -309,11 +334,14 @@ def get_quote(ticker):
         if price is None:
             return out
         prev = prev or price
-        out.update({"ok": True, "price": float(price), "prev_close": float(prev),
+        currency = _sg(fi, "currency", default=("INR" if ticker.endswith((".NS", ".BO")) else "USD"))
+        fx = get_fx_to_inr(currency)
+        out.update({"ok": True, "price": float(price), "price_inr": float(price) * fx, "prev_close": float(prev),
                     "change_pct": float((price - prev) / prev * 100) if prev else 0.0,
                     "day_high": _sg(fi, "dayHigh", "day_high"), "day_low": _sg(fi, "dayLow", "day_low"),
                     "market_cap": _sg(fi, "marketCap", "market_cap"), "volume": _sg(fi, "lastVolume", "last_volume"),
-                    "year_high": _sg(fi, "yearHigh", "year_high"), "year_low": _sg(fi, "yearLow", "year_low")})
+                    "year_high": _sg(fi, "yearHigh", "year_high"), "year_low": _sg(fi, "yearLow", "year_low"),
+                    "currency": currency, "fx": fx})
         try:
             info = t.get_info()
             out["name"] = TICKER_TO_NAME.get(ticker) or info.get("shortName") or info.get("longName") or ticker
@@ -703,7 +731,7 @@ def price_lookup_for(pm, extra=()):
     if not ts:
         return {}
     q = get_quotes_batch(ts)
-    return {t: x["price"] for t, x in q.items() if x and x.get("ok") and x.get("price")}
+    return {t: x["price_inr"] for t, x in q.items() if x and x.get("ok") and x.get("price_inr")}
 
 
 def onboarding():
@@ -785,7 +813,7 @@ def page_dashboard(pm, prices):
     for t, p in pm.holdings.items():
         q = get_quote(t)
         if q.get("ok") and q.get("prev_close"):
-            day_pnl += p["qty"] * (q["price"] - q["prev_close"])
+            day_pnl += p["qty"] * (q["price_inr"] - q["prev_close"] * q.get("fx", 1.0))
     st.markdown("#### 💰 Your money")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Investable capital", fmt_money(pm.starting_cash, compact=True))
@@ -847,6 +875,8 @@ def page_dashboard(pm, prices):
 
 
 def _order_panels(pm, prices, ticker, qq):
+    # Charge the ₹ account using the INR-converted price (Indian stocks: same number).
+    qq = {**qq, "price": qq.get("price_inr", qq.get("price"))}
     existing = pm.holdings.get(ticker)
     o1, o2 = st.columns(2)
     with o1:
@@ -930,13 +960,17 @@ def page_trade(pm, prices):
         st.error(f"Couldn't fetch data for '{ticker}'. Indian stocks need a '.NS' suffix (e.g. TATAMOTORS.NS).")
         return
 
+    cur = qq.get("currency", "INR")
     a, b, c, d, e = st.columns([1.7, 1, 1, 1, 1])
     a.markdown(f"### {qq['name']}")
     a.markdown(f"`{ticker}` &nbsp; " + change_pill(qq["change_pct"]), unsafe_allow_html=True)
-    b.metric("Price", fmt_money(qq["price"]))
-    c.metric("Day High", fmt_money(qq.get("day_high")) if qq.get("day_high") else "—")
-    d.metric("Day Low", fmt_money(qq.get("day_low")) if qq.get("day_low") else "—")
-    e.metric("Mkt Cap", fmt_money(qq.get("market_cap"), compact=True) if qq.get("market_cap") else "—")
+    b.metric("Price", fmt_price(qq["price"], cur))
+    c.metric("Day High", fmt_price(qq.get("day_high"), cur) if qq.get("day_high") else "—")
+    d.metric("Day Low", fmt_price(qq.get("day_low"), cur) if qq.get("day_low") else "—")
+    e.metric("Mkt Cap", fmt_money((qq.get("market_cap") or 0) * qq.get("fx", 1.0), compact=True) if qq.get("market_cap") else "—")
+    if cur != "INR":
+        st.caption(f"🌐 Foreign stock — priced in {cur}. Your ₹ account is charged at 1 {cur} = ₹{qq.get('fx',1):.2f} "
+                   f"(≈ {fmt_money(qq['price_inr'])} per share).")
 
     # Candlestick chart on the Trade page
     cc1, cc2 = st.columns([1, 2])
@@ -1117,9 +1151,10 @@ def page_watchlist(pm, prices):
         cols = st.columns([2, 1, 1, 1, 0.8])
         cols[0].markdown(f"**{short_name(t)}**  \n<span class='muted' style='font-size:0.8rem'>{t}</span>", unsafe_allow_html=True)
         if x and x.get("ok"):
-            cols[1].markdown(f"<span class='mono'>{fmt_money(x['price'])}</span>", unsafe_allow_html=True)
+            xc = x.get("currency", "INR")
+            cols[1].markdown(f"<span class='mono'>{fmt_price(x['price'], xc)}</span>", unsafe_allow_html=True)
             cols[2].markdown(change_pill(x["change_pct"]), unsafe_allow_html=True)
-            cols[3].markdown(f"<span class='muted' style='font-size:0.78rem'>52W {fmt_money(x.get('year_high')) if x.get('year_high') else '—'} / {fmt_money(x.get('year_low')) if x.get('year_low') else '—'}</span>", unsafe_allow_html=True)
+            cols[3].markdown(f"<span class='muted' style='font-size:0.78rem'>52W {fmt_price(x.get('year_high'), xc) if x.get('year_high') else '—'} / {fmt_price(x.get('year_low'), xc) if x.get('year_low') else '—'}</span>", unsafe_allow_html=True)
         else:
             cols[1].write("—")
             cols[2].write("No data")
@@ -1152,7 +1187,7 @@ def page_charts(pm, prices):
     if qq.get("ok"):
         h1, h2, h3 = st.columns([2, 1, 1])
         h1.markdown(f"### {qq['name']}  " + change_pill(qq["change_pct"]), unsafe_allow_html=True)
-        h2.metric("Price", fmt_money(qq["price"]))
+        h2.metric("Price", fmt_price(qq["price"], qq.get("currency", "INR")))
         try:
             h3.metric("RSI (14)", f"{float(rsi(df['Close']).iloc[-1]):.1f}")
         except Exception:
