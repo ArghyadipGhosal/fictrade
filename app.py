@@ -597,17 +597,35 @@ def _store_hash():
     return hashlib.md5(json.dumps(st.session_state.get("store", {}), sort_keys=True).encode()).hexdigest()
 
 
+def _js_write(blob):
+    """Belt-and-suspenders: write directly to the parent window's localStorage
+    via a tiny inline component. Runs reliably on a natural script render."""
+    try:
+        import streamlit.components.v1 as components
+        payload = json.dumps(blob)  # JS string literal of the JSON text
+        key_lit = json.dumps(STORE_KEY)
+        components.html(
+            f"<script>try{{window.parent.localStorage.setItem({key_lit}, {payload});}}catch(e){{}}</script>",
+            height=0, width=0,
+        )
+    except Exception:
+        pass
+
+
 def save_store():
-    if not LS_OK:
+    """Persist the store to the browser. We write on every natural render (no
+    change-gate) so the write can't be skipped after an aborted rerun — this is
+    what makes data actually survive a page reload."""
+    if "store" not in st.session_state:
         return
-    h = _store_hash()
-    if st.session_state.get("saved_hash") != h:
+    blob = json.dumps(st.session_state["store"])
+    if LS_OK:
         st.session_state["ls_n"] = st.session_state.get("ls_n", 0) + 1
         try:
-            _LS.setItem(STORE_KEY, json.dumps(st.session_state["store"]), key=f"set_{st.session_state['ls_n']}")
+            _LS.setItem(STORE_KEY, blob, key=f"set_{st.session_state['ls_n']}")
         except Exception:
             pass
-        st.session_state["saved_hash"] = h
+    _js_write(blob)
 
 
 def store():
