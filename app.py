@@ -100,18 +100,14 @@ def inject_css():
     button[data-baseweb="tab"] {{ font-weight:600; color:{MUTED} !important; }}
     button[data-baseweb="tab"][aria-selected="true"] {{ color:{PRIMARY} !important; }}
     div[data-baseweb="tab-highlight"] {{ background-color:{PRIMARY} !important; }}
-    /* Top nav as pill tabs */
-    div[data-testid="stMain"] div[role="radiogroup"] {{ gap:8px; flex-wrap:wrap; margin-bottom:12px; }}
-    div[data-testid="stMain"] div[role="radiogroup"] label {{
-        background:{CARD}; border:1px solid {BORDER}; border-radius:999px; padding:7px 15px !important;
-        margin:0 !important; cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,0.05); }}
-    div[data-testid="stMain"] div[role="radiogroup"] label p,
-    div[data-testid="stMain"] div[role="radiogroup"] label div {{ color:{TEXT} !important; font-weight:600 !important; font-size:0.9rem; }}
-    /* hide the round radio marker */
-    div[data-testid="stMain"] div[role="radiogroup"] label > div:first-child {{ display:none !important; }}
-    div[data-testid="stMain"] div[role="radiogroup"] label:has(input:checked) {{ background:{PRIMARY} !important; border-color:{PRIMARY} !important; }}
-    div[data-testid="stMain"] div[role="radiogroup"] label:has(input:checked) p,
-    div[data-testid="stMain"] div[role="radiogroup"] label:has(input:checked) div {{ color:#fff !important; }}
+    /* Radios styled as clean pill tabs (top nav + order-type toggles) */
+    div[role="radiogroup"] {{ gap:8px; flex-wrap:wrap; }}
+    div[role="radiogroup"] label {{ background:{CARD}; border:1px solid {BORDER}; border-radius:999px;
+        padding:7px 16px !important; margin:0 6px 6px 0 !important; cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,0.05); }}
+    div[role="radiogroup"] label > div:first-child {{ display:none !important; }}
+    div[role="radiogroup"] label * {{ color:{TEXT} !important; font-weight:600 !important; }}
+    div[role="radiogroup"] label:has(input:checked) {{ background:{PRIMARY} !important; border-color:{PRIMARY} !important; }}
+    div[role="radiogroup"] label:has(input:checked) * {{ color:#fff !important; }}
     /* Cards & pills */
     .hero {{ padding:22px 26px; border-radius:18px; background:linear-gradient(120deg,#EEF2FF,#F7FAFF);
         border:1px solid {BORDER}; margin-bottom:18px; }}
