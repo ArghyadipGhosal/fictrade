@@ -129,6 +129,17 @@ def inject_css():
     .muted {{ color:{MUTED}; }}
     hr {{ border-color:{BORDER} !important; }}
     a {{ color:{PRIMARY} !important; }}
+    /* Recolor Streamlit's default red widget accents to indigo */
+    span[data-baseweb="tag"] {{ background-color:{PRIMARY} !important; }}
+    span[data-baseweb="tag"] span, span[data-baseweb="tag"] svg {{ color:#fff !important; fill:#fff !important; }}
+    [data-testid="stSlider"] [role="slider"] {{ background-color:{PRIMARY} !important; }}
+    [data-testid="stSlider"] [data-baseweb="slider"] div[style*="rgb(255, 75, 75)"],
+    [data-testid="stSlider"] [data-baseweb="slider"] div[style*="rgb(255,75,75)"] {{ background:{PRIMARY} !important; }}
+    [data-baseweb="checkbox"] span[aria-checked="true"],
+    [data-baseweb="checkbox"] label > span:first-child[data-checked="true"] {{
+        background-color:{PRIMARY} !important; border-color:{PRIMARY} !important; }}
+    input[type="checkbox"]:checked + div, label[data-baseweb="checkbox"] input:checked ~ div {{ background-color:{PRIMARY} !important; }}
+    [data-baseweb="select"] [aria-selected="true"] {{ color:{PRIMARY} !important; }}
     .xp-track {{ width:100%; height:8px; border-radius:999px; background:#EDEFF5; overflow:hidden; }}
     .xp-fill {{ height:100%; background:{PRIMARY}; }}
     </style>
