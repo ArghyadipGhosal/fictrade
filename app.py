@@ -77,6 +77,17 @@ def inject_css():
     .stDeployButton {{display:none !important;}}
     [data-testid="stHeader"] {{background:transparent;}}
     a[href*="github.com"] {{display:none !important;}}
+    /* Hide Streamlit Cloud viewer badges ("Created by <photo>" + "Hosted with Streamlit") */
+    [class*="viewerBadge"] {{display:none !important;}}
+    [class*="profileContainer"] {{display:none !important;}}
+    [class*="profilePreview"] {{display:none !important;}}
+    a[href*="streamlit.io"] {{display:none !important;}}
+    a[href*="share.streamlit"] {{display:none !important;}}
+    /* Top navigation styled as pill tabs */
+    div[role="radiogroup"] {{ gap:6px; flex-wrap:wrap; }}
+    .stApp div[data-testid="stMain"] div[role="radiogroup"] label {{
+        background:{CARD}; border:1px solid {CARD_BORDER}; border-radius:12px;
+        padding:6px 12px !important; margin:0 !important; }}
     section[data-testid="stSidebar"] {{ background:linear-gradient(180deg,#0A0C18,#090A14); border-right:1px solid {CARD_BORDER}; }}
     section[data-testid="stSidebar"] * {{ color:#D6D9E8 !important; }}
     h1,h2,h3 {{ font-weight:800 !important; letter-spacing:-0.02em; }}
@@ -708,12 +719,8 @@ def render_sidebar():
     st.sidebar.progress(min(max(pm.level_progress_pct() / 100, 0.0), 1.0), text=f"Level {pm.level()} • {pm.xp()} XP")
     st.sidebar.markdown("---")
 
-    page = st.sidebar.radio("Go to", ["🏠 Dashboard", "💰 Trade", "📊 Portfolio", "⭐ Watchlist",
-                                      "📉 Charts", "📰 News", "🎓 Learn", "🏆 Leaderboard", "⚙️ Settings"],
-                            label_visibility="collapsed")
-    st.sidebar.markdown("---")
     st.sidebar.caption("⚠️ Simulated — no real orders or money.")
-    return pm, prices, page
+    return pm, prices
 
 
 # =============================================================================
@@ -1171,7 +1178,11 @@ def main():
         save_store()
         return
     inject_css()
-    pm, prices, page = render_sidebar()
+    pm, prices = render_sidebar()
+    # Top navigation (works on mobile & desktop — no sidebar needed).
+    NAV = ["🏠 Dashboard", "💰 Trade", "📊 Portfolio", "⭐ Watchlist", "📉 Charts",
+           "📰 News", "🎓 Learn", "🏆 Leaderboard", "⚙️ Settings"]
+    page = st.radio("Navigate", NAV, horizontal=True, label_visibility="collapsed", key="nav")
     {
         "🏠 Dashboard": page_dashboard, "💰 Trade": page_trade, "📊 Portfolio": page_portfolio,
         "⭐ Watchlist": page_watchlist, "📉 Charts": page_charts, "📰 News": page_news,
